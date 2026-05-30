@@ -35,6 +35,7 @@ python -m wordpaper extract-comments paper.docx
 python -m wordpaper analyze-writing paper.docx --out writing-report.json
 python -m wordpaper extract-abstract paper.docx --out abstract.json
 python -m wordpaper list-references paper.docx --out references.json
+python -m wordpaper audit-references paper.docx --out reference-audit.json
 python -m wordpaper check-journal paper.docx --rules basic --out journal-check.json
 python -m wordpaper review-manuscript paper.docx --out manuscript-review.json
 python -m wordpaper plan-revision paper.docx --out revision-plan.json
@@ -59,9 +60,27 @@ The report includes:
 - `abstract`: abstract text, word count, and source block IDs.
 - `keywords`: parsed keyword line.
 - `sections`: classified headings such as abstract, introduction, methods, results, discussion, conclusion, references, acknowledgements, funding, and competing interests.
-- `references`: reference-section items.
+- `references`: structured reference-section items with label, style, authors, year, title, venue, DOI, PMID, URL, and source block ID when detected.
+- `reference_audit`: reference metadata, in-text citation inventory, resolved citations, and actionable reference issues.
 - `citation_checks`: whether detected figures and tables are cited in body text.
 - `checks`: warnings for missing core sections, missing keywords/references, and uncited figures/tables.
+
+## Reference System
+
+Use `audit-references` for any request involving references, bibliography, citations, DOI, PMID, numbered citation integrity, author-year citations, or submission readiness. Do not rely on `list-references` alone; it only exposes extracted items.
+
+The audit detects:
+
+- numbered references such as `[1]` or `1.`
+- author-year mentions such as `Smith (2024)` and `(Smith, 2024)`
+- DOI, PMID, URL, year, authors, title, and venue when recoverable from plain reference text
+- in-text citations that have no matching reference
+- reference-list items that are not cited
+- duplicate DOI or duplicate inferred source fingerprints
+- numbered reference gaps
+- missing publication years and unstructured reference items
+
+Treat `citation_without_reference`, `duplicate_doi`, and missing reference sections as major issues. Treat uncited references, missing years, sequence gaps, and unstructured items as warnings unless the target journal says otherwise.
 
 Use `check-journal --rules basic` for deterministic basic checks such as abstract length and keyword count. Use these outputs to guide the agent's writing decisions, then generate a patch if the Word document needs local edits.
 
@@ -137,6 +156,7 @@ The command requires:
 
 - source `.docx`
 - `gold.json` with expected title, abstract text marker, keywords, sections, object counts, and required review/revision outputs
+- optional `requires_reference_issue_types` for reference-audit acceptance
 - compile plan that should revise the document successfully
 - output path for the compiled `.docx`
 

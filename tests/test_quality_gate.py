@@ -33,6 +33,7 @@ class QualityGateTests(unittest.TestCase):
                     "references": 2,
                     "requires_review_issue_types": ["missing_conclusion", "table_not_cited", "abstract_underdeveloped"],
                     "requires_revision_actions": ["add_section", "cite_table", "rewrite_abstract"],
+                    "requires_reference_issue_types": ["reference_not_cited"],
                 }
             ),
             encoding="utf-8",
@@ -87,6 +88,9 @@ class QualityGateTests(unittest.TestCase):
                 "end_to_end": 100,
             },
         )
+        citation_category = next(category for category in report["categories"] if category["name"] == "citation_system")
+        self.assertIn("reference_audit_runs", {check["name"] for check in citation_category["checks"]})
+        self.assertIn("required_reference_issue_types_present", {check["name"] for check in citation_category["checks"]})
         self.assertTrue(all(check["passed"] for category in report["categories"] for check in category["checks"]))
 
     def test_cli_quality_gate_requires_100_percent_when_requested(self):

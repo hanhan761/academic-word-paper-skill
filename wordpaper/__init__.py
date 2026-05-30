@@ -5,6 +5,7 @@ from .patch import apply_patch
 from .validator import validate_docx
 from .academic import (
     analyze_writing,
+    audit_references,
     check_journal,
     extract_abstract,
     list_references,
@@ -18,6 +19,7 @@ from .quality import evaluate_quality_gate
 __all__ = [
     "analyze_writing",
     "apply_patch",
+    "audit_references",
     "check_journal",
     "compile_document",
     "export_ir",

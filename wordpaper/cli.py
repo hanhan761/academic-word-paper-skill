@@ -8,6 +8,7 @@ from typing import Any
 
 from .academic import (
     analyze_writing,
+    audit_references,
     check_journal,
     extract_abstract,
     list_references,
@@ -91,6 +92,10 @@ def build_parser() -> argparse.ArgumentParser:
     refs.add_argument("docx")
     refs.add_argument("--out")
 
+    ref_audit = sub.add_parser("audit-references", help="Audit reference metadata and in-text citation integrity.")
+    ref_audit.add_argument("docx")
+    ref_audit.add_argument("--out")
+
     journal = sub.add_parser("check-journal", help="Run basic journal-style manuscript checks.")
     journal.add_argument("docx")
     journal.add_argument("--rules", default="basic")
@@ -161,6 +166,8 @@ def dispatch(args: argparse.Namespace) -> Any:
         return extract_abstract(args.docx)
     if args.command == "list-references":
         return list_references(args.docx)
+    if args.command == "audit-references":
+        return audit_references(args.docx)
     if args.command == "check-journal":
         return check_journal(args.docx, args.rules)
     if args.command == "review-manuscript":

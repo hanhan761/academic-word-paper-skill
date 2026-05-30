@@ -106,8 +106,14 @@ def submission_checks(docx: str | Path) -> list[dict[str, Any]]:
 def citation_checks(analysis: dict[str, Any], compiled_analysis: dict[str, Any], gold: dict[str, Any]) -> list[dict[str, Any]]:
     before_tables = analysis["citation_checks"]["tables"]
     after_tables = compiled_analysis.get("citation_checks", {}).get("tables", [])
+    reference_audit = analysis.get("reference_audit", {})
+    reference_issue_types = {issue["type"] for issue in reference_audit.get("issues", [])}
+    reference_items = reference_audit.get("items", [])
     return [
         check("references_extracted", len(analysis["references"]["items"]) == gold.get("references", 0), analysis["references"]),
+        check("reference_audit_runs", reference_audit.get("status") in {"ok", "warning"}, reference_audit.get("status")),
+        check("reference_metadata_parsed", all(item.get("label") and item.get("year") for item in reference_items), reference_items),
+        check("required_reference_issue_types_present", set(gold.get("requires_reference_issue_types", [])) <= reference_issue_types, sorted(reference_issue_types)),
         check("uncited_table_detected", any(not item["cited"] for item in before_tables), before_tables),
         check("table_citation_compiled", bool(after_tables) and all(item["cited"] for item in after_tables), after_tables),
     ]
