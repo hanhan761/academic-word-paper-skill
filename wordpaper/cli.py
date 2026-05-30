@@ -18,6 +18,7 @@ from .academic import (
 from .compiler import compile_document
 from .ir import export_ir
 from .patch import apply_patch
+from .quality import evaluate_quality_gate
 from .validator import validate_docx
 
 
@@ -115,6 +116,14 @@ def build_parser() -> argparse.ArgumentParser:
     compile_cmd.add_argument("--out", required=True)
     compile_cmd.add_argument("--report")
 
+    quality = sub.add_parser("quality-gate", help="Run six-category 100-percent quality gate against a gold file.")
+    quality.add_argument("docx")
+    quality.add_argument("--gold", required=True)
+    quality.add_argument("--compile-plan", required=True)
+    quality.add_argument("--compiled-out", required=True)
+    quality.add_argument("--require-100", action="store_true")
+    quality.add_argument("--out", required=True)
+
     return parser
 
 
@@ -162,6 +171,12 @@ def dispatch(args: argparse.Namespace) -> Any:
         return make_section_patch(args.docx, args.section, args.instruction)
     if args.command == "compile":
         return compile_document(args.docx, args.plan, args.out, args.report)
+    if args.command == "quality-gate":
+        report = evaluate_quality_gate(args.docx, args.gold, args.compile_plan, args.compiled_out)
+        Path(args.out).write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        if args.require_100 and report["overall_score"] < 100:
+            raise ValueError(f"quality gate failed: {report['overall_score']}")
+        return None
     raise ValueError(f"unknown command: {args.command}")
 
 

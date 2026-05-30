@@ -40,6 +40,7 @@ python -m wordpaper review-manuscript paper.docx --out manuscript-review.json
 python -m wordpaper plan-revision paper.docx --out revision-plan.json
 python -m wordpaper make-section-patch paper.docx --section abstract --instruction "Rewrite to 150-200 words with objective, method, result, and conclusion." --out abstract.patch.json
 python -m wordpaper compile paper.docx compile-plan.json --out paper_revised.docx --report compile-report.json
+python -m wordpaper quality-gate paper.docx --gold gold.json --compile-plan compile-plan.json --compiled-out paper_revised.docx --require-100 --out quality-report.json
 python -m wordpaper apply paper.docx patch.json --out paper_revised.docx
 python -m wordpaper validate paper_revised.docx
 python -m wordpaper diff paper.docx paper_revised.docx --out diff.json
@@ -118,6 +119,28 @@ Supported semantic compile actions:
 - `insert_section_after`: add a heading and paragraphs after a named section.
 
 `compile` returns a report containing patch status, validation status, and semantic diff. Treat `validation.status: error` as a failed compile.
+
+## 100% Quality Gate
+
+Do not claim the skill reaches 100% in general. Claim 100% only for a declared gold corpus and supported feature set.
+
+Use `quality-gate` whenever the user asks for hard acceptance or "all metrics at 100%". It scores six categories:
+
+- `word_safety`
+- `structure_analysis`
+- `writing_assist`
+- `submission_prep`
+- `citation_system`
+- `end_to_end`
+
+The command requires:
+
+- source `.docx`
+- `gold.json` with expected title, abstract text marker, keywords, sections, object counts, and required review/revision outputs
+- compile plan that should revise the document successfully
+- output path for the compiled `.docx`
+
+With `--require-100`, the command fails unless every category is exactly 100. Treat this as the acceptance gate for supported-scope releases.
 
 ## Patch DSL
 
