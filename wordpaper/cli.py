@@ -6,7 +6,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .academic import analyze_writing, check_journal, extract_abstract, list_references
+from .academic import (
+    analyze_writing,
+    check_journal,
+    extract_abstract,
+    list_references,
+    make_section_patch,
+    plan_revision,
+    review_manuscript,
+)
 from .ir import export_ir
 from .patch import apply_patch
 from .validator import validate_docx
@@ -86,6 +94,20 @@ def build_parser() -> argparse.ArgumentParser:
     journal.add_argument("--rules", default="basic")
     journal.add_argument("--out")
 
+    review = sub.add_parser("review-manuscript", help="Generate prioritized manuscript review issues.")
+    review.add_argument("docx")
+    review.add_argument("--out")
+
+    plan = sub.add_parser("plan-revision", help="Generate an actionable revision plan from manuscript review.")
+    plan.add_argument("docx")
+    plan.add_argument("--out")
+
+    section_patch = sub.add_parser("make-section-patch", help="Create a JSON patch skeleton for rewriting a section.")
+    section_patch.add_argument("docx")
+    section_patch.add_argument("--section", required=True)
+    section_patch.add_argument("--instruction", default="")
+    section_patch.add_argument("--out", required=True)
+
     return parser
 
 
@@ -125,6 +147,12 @@ def dispatch(args: argparse.Namespace) -> Any:
         return list_references(args.docx)
     if args.command == "check-journal":
         return check_journal(args.docx, args.rules)
+    if args.command == "review-manuscript":
+        return review_manuscript(args.docx)
+    if args.command == "plan-revision":
+        return plan_revision(args.docx)
+    if args.command == "make-section-patch":
+        return make_section_patch(args.docx, args.section, args.instruction)
     raise ValueError(f"unknown command: {args.command}")
 
 

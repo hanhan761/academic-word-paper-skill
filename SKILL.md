@@ -13,12 +13,13 @@ Do not directly rewrite a Word document from scratch unless the user explicitly 
 
 1. Inspect the `.docx`.
 2. Run writing analysis for paper-facing tasks.
-3. Export WordPaper IR when block-level patching is needed.
-4. Read the IR and identify stable block IDs.
-5. Create a declarative patch plan.
-6. Apply the patch to the original `.docx`.
-7. Validate the revised `.docx`.
-8. Return the revised document path, diff or change summary, and validation status.
+3. Generate a manuscript review and revision plan for broad writing requests.
+4. Export WordPaper IR when block-level patching is needed.
+5. Read the IR and identify stable block IDs.
+6. Create a declarative patch plan or section patch skeleton.
+7. Apply the patch to the original `.docx`.
+8. Validate the revised `.docx`.
+9. Return the revised document path, diff or change summary, and validation status.
 
 ## Commands
 
@@ -35,6 +36,9 @@ python -m wordpaper analyze-writing paper.docx --out writing-report.json
 python -m wordpaper extract-abstract paper.docx --out abstract.json
 python -m wordpaper list-references paper.docx --out references.json
 python -m wordpaper check-journal paper.docx --rules basic --out journal-check.json
+python -m wordpaper review-manuscript paper.docx --out manuscript-review.json
+python -m wordpaper plan-revision paper.docx --out revision-plan.json
+python -m wordpaper make-section-patch paper.docx --section abstract --instruction "Rewrite to 150-200 words with objective, method, result, and conclusion." --out abstract.patch.json
 python -m wordpaper apply paper.docx patch.json --out paper_revised.docx
 python -m wordpaper validate paper_revised.docx
 python -m wordpaper diff paper.docx paper_revised.docx --out diff.json
@@ -58,6 +62,15 @@ The report includes:
 - `checks`: warnings for missing core sections, missing keywords/references, and uncited figures/tables.
 
 Use `check-journal --rules basic` for deterministic basic checks such as abstract length and keyword count. Use these outputs to guide the agent's writing decisions, then generate a patch if the Word document needs local edits.
+
+For broad requests such as "make this paper better", "check whether this manuscript is ready", or "revise this Word paper", use:
+
+1. `review-manuscript` to produce prioritized issues grouped by structure, abstract, figures, tables, references, and writing.
+2. `plan-revision` to turn issues into concrete actions such as `rewrite_abstract`, `cite_table`, `cite_figure`, or `add_section`.
+3. `make-section-patch` to create a patch skeleton for a specific section. Replace the `TODO` value with the agent-written revised text before applying it.
+4. `apply`, `validate`, and `diff` to safely write and verify the revised `.docx`.
+
+Do not apply a patch skeleton while it still contains `TODO`; it is a scaffold for the agent's revised prose.
 
 ## Patch DSL
 

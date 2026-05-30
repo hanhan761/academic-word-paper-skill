@@ -93,6 +93,69 @@ class AcademicAnalysisTests(unittest.TestCase):
         self.assertEqual(len(references["items"]), 2)
         self.assertIn("abstract_too_short", {check["type"] for check in journal["checks"]})
 
+    def test_review_revision_plan_and_patch_skeleton_are_actionable(self):
+        from wordpaper.academic import make_section_patch, plan_revision, review_manuscript
+
+        review = review_manuscript(self.docx)
+        plan = plan_revision(self.docx)
+        patch = make_section_patch(
+            self.docx,
+            section="abstract",
+            instruction="Rewrite the abstract to 150-200 words with a clear objective, method, result, and conclusion.",
+        )
+
+        self.assertEqual(review["status"], "warning")
+        self.assertEqual(review["summary"]["title"], "A WordPaper Study")
+        self.assertGreaterEqual(review["summary"]["word_count"], 40)
+        self.assertIn("structure", review["categories"])
+        self.assertIn("tables", review["categories"])
+        self.assertEqual(review["issues"][0]["severity"], "major")
+        self.assertIn("priority", review["issues"][0])
+
+        actions = [item["action"] for item in plan["actions"]]
+        self.assertIn("rewrite_abstract", actions)
+        self.assertIn("cite_table", actions)
+        self.assertTrue(all("rationale" in item for item in plan["actions"]))
+
+        self.assertEqual(patch["version"], 1)
+        self.assertEqual(patch["actions"][0]["action"], "replace_block_text")
+        self.assertEqual(patch["actions"][0]["target"]["block_id"], "p_001")
+        self.assertIn("TODO", patch["actions"][0]["value"])
+        self.assertEqual(patch["metadata"]["instruction"], "Rewrite the abstract to 150-200 words with a clear objective, method, result, and conclusion.")
+
+    def test_cli_exports_review_plan_and_patch_skeleton(self):
+        from wordpaper.cli import main
+
+        review_path = self.tmp / "review.json"
+        plan_path = self.tmp / "plan.json"
+        patch_path = self.tmp / "abstract.patch.json"
+
+        self.assertEqual(main(["review-manuscript", str(self.docx), "--out", str(review_path)]), 0)
+        self.assertEqual(main(["plan-revision", str(self.docx), "--out", str(plan_path)]), 0)
+        self.assertEqual(
+            main(
+                [
+                    "make-section-patch",
+                    str(self.docx),
+                    "--section",
+                    "abstract",
+                    "--instruction",
+                    "Make the abstract journal-ready.",
+                    "--out",
+                    str(patch_path),
+                ]
+            ),
+            0,
+        )
+
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        patch = json.loads(patch_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(review["summary"]["title"], "A WordPaper Study")
+        self.assertTrue(plan["actions"])
+        self.assertEqual(patch["actions"][0]["target"]["block_id"], "p_001")
+
 
 if __name__ == "__main__":
     unittest.main()
