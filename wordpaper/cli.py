@@ -15,6 +15,7 @@ from .academic import (
     plan_revision,
     review_manuscript,
 )
+from .compiler import compile_document
 from .ir import export_ir
 from .patch import apply_patch
 from .validator import validate_docx
@@ -29,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1
     if result is not None:
-        if args.command == "apply":
+        if args.command in {"apply", "compile"}:
             print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
             write_result(result, getattr(args, "out", None))
@@ -108,6 +109,12 @@ def build_parser() -> argparse.ArgumentParser:
     section_patch.add_argument("--instruction", default="")
     section_patch.add_argument("--out", required=True)
 
+    compile_cmd = sub.add_parser("compile", help="Compile a semantic WordPaper plan into a revised docx and report.")
+    compile_cmd.add_argument("docx")
+    compile_cmd.add_argument("plan")
+    compile_cmd.add_argument("--out", required=True)
+    compile_cmd.add_argument("--report")
+
     return parser
 
 
@@ -153,6 +160,8 @@ def dispatch(args: argparse.Namespace) -> Any:
         return plan_revision(args.docx)
     if args.command == "make-section-patch":
         return make_section_patch(args.docx, args.section, args.instruction)
+    if args.command == "compile":
+        return compile_document(args.docx, args.plan, args.out, args.report)
     raise ValueError(f"unknown command: {args.command}")
 
 

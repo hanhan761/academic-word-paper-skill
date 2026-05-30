@@ -16,8 +16,8 @@ Do not directly rewrite a Word document from scratch unless the user explicitly 
 3. Generate a manuscript review and revision plan for broad writing requests.
 4. Export WordPaper IR when block-level patching is needed.
 5. Read the IR and identify stable block IDs.
-6. Create a declarative patch plan or section patch skeleton.
-7. Apply the patch to the original `.docx`.
+6. Create a declarative compile plan, patch plan, or section patch skeleton.
+7. Prefer `compile` for semantic manuscript edits; use `apply` for low-level block edits.
 8. Validate the revised `.docx`.
 9. Return the revised document path, diff or change summary, and validation status.
 
@@ -39,6 +39,7 @@ python -m wordpaper check-journal paper.docx --rules basic --out journal-check.j
 python -m wordpaper review-manuscript paper.docx --out manuscript-review.json
 python -m wordpaper plan-revision paper.docx --out revision-plan.json
 python -m wordpaper make-section-patch paper.docx --section abstract --instruction "Rewrite to 150-200 words with objective, method, result, and conclusion." --out abstract.patch.json
+python -m wordpaper compile paper.docx compile-plan.json --out paper_revised.docx --report compile-report.json
 python -m wordpaper apply paper.docx patch.json --out paper_revised.docx
 python -m wordpaper validate paper_revised.docx
 python -m wordpaper diff paper.docx paper_revised.docx --out diff.json
@@ -68,9 +69,55 @@ For broad requests such as "make this paper better", "check whether this manuscr
 1. `review-manuscript` to produce prioritized issues grouped by structure, abstract, figures, tables, references, and writing.
 2. `plan-revision` to turn issues into concrete actions such as `rewrite_abstract`, `cite_table`, `cite_figure`, or `add_section`.
 3. `make-section-patch` to create a patch skeleton for a specific section. Replace the `TODO` value with the agent-written revised text before applying it.
-4. `apply`, `validate`, and `diff` to safely write and verify the revised `.docx`.
+4. `compile` for semantic edits that target sections, keywords, missing sections, and figure/table citations.
+5. `apply`, `validate`, and `diff` only when you need low-level block control.
 
 Do not apply a patch skeleton while it still contains `TODO`; it is a scaffold for the agent's revised prose.
+
+## Compile Plans
+
+Prefer compile plans when the user asks for flexible manuscript editing rather than a single block replacement. A compile plan is JSON with `version` and `actions`.
+
+```json
+{
+  "version": 1,
+  "actions": [
+    {
+      "action": "replace_section_text",
+      "target": {"section": "abstract"},
+      "value": [
+        "Objective and method paragraph...",
+        "Key result and conclusion paragraph..."
+      ]
+    },
+    {
+      "action": "set_keywords",
+      "value": ["WordPaper", "docx", "semantic compiler"]
+    },
+    {
+      "action": "cite_table",
+      "target": {"table_index": 1, "section": "results"},
+      "sentence": "Table 1 summarizes the parser accuracy for the prototype."
+    },
+    {
+      "action": "insert_section_after",
+      "target": {"section": "discussion"},
+      "heading": "Conclusion",
+      "level": 2,
+      "paragraphs": ["This study establishes a safer foundation for AI-assisted manuscript editing."]
+    }
+  ]
+}
+```
+
+Supported semantic compile actions:
+
+- `replace_section_text`: replace editable paragraphs in a named section.
+- `set_keywords`: update or insert the keyword line.
+- `cite_table` / `cite_figure`: insert an interpretive citation sentence into a target section.
+- `insert_section_after`: add a heading and paragraphs after a named section.
+
+`compile` returns a report containing patch status, validation status, and semantic diff. Treat `validation.status: error` as a failed compile.
 
 ## Patch DSL
 

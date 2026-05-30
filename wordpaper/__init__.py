@@ -12,11 +12,13 @@ from .academic import (
     plan_revision,
     review_manuscript,
 )
+from .compiler import compile_document
 
 __all__ = [
     "analyze_writing",
     "apply_patch",
     "check_journal",
+    "compile_document",
     "export_ir",
     "extract_abstract",
     "list_references",

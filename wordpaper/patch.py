@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from .ir import export_ir
+from .ir import detect_figures, detect_sections, detect_tables, export_ir, parse_body_blocks, parse_styles
 from .ooxml import DocxPackage, qn, w_tag, xml_bytes
+
+KEYWORD_PREFIX_RE = r"^\s*(keywords?|关键词)\s*[:：]"
 
 
 def apply_patch(input_docx: str | Path, patch: dict[str, Any] | str | Path, out_docx: str | Path) -> dict[str, Any]:
@@ -17,12 +19,13 @@ def apply_patch(input_docx: str | Path, patch: dict[str, Any] | str | Path, out_
     if body is None:
         return {"status": "error", "applied": [], "errors": [{"message": "word/document.xml has no body"}]}
 
-    ir = export_ir(input_docx)
+    ir = current_ir(package, body)
     applied: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for action in patch_data.get("actions", []):
         try:
             applied.append(apply_action(action, body, ir))
+            ir = current_ir(package, body)
         except Exception as exc:  # Keep batch patch reports explicit instead of half-silent.
             errors.append({"action": action.get("action", ""), "message": str(exc)})
 
@@ -59,7 +62,27 @@ def apply_action(action: dict[str, Any], body: ET.Element, ir: dict[str, Any]) -
         child = body_child(body, block)
         body.remove(child)
         return {"action": action_name, "block_id": block["id"]}
+    if action_name == "replace_section_text":
+        return replace_section_text(body, ir, action.get("target", {}), action.get("value", ""))
+    if action_name == "set_keywords":
+        return set_keywords(body, ir, action.get("value", []))
+    if action_name == "insert_section_after":
+        return insert_section_after(body, ir, action)
+    if action_name in {"cite_table", "cite_figure"}:
+        return insert_citation_sentence(body, ir, action_name, action.get("target", {}), str(action.get("sentence", "")))
     raise ValueError(f"unsupported patch action: {action_name}")
+
+
+def current_ir(package: DocxPackage, body: ET.Element) -> dict[str, Any]:
+    styles = parse_styles(package)
+    rels = package.document_relationships_by_id()
+    blocks = parse_body_blocks(body, styles, rels)
+    return {
+        "blocks": blocks,
+        "sections": detect_sections(blocks),
+        "figures": detect_figures(blocks, rels),
+        "tables": detect_tables(blocks),
+    }
 
 
 def load_patch(patch: dict[str, Any] | str | Path) -> dict[str, Any]:
@@ -148,12 +171,37 @@ def find_target_block(ir: dict[str, Any], target: dict[str, Any]) -> dict[str, A
         if len(matches) == 1:
             return matches[0]
         raise ValueError(f"text target matched {len(matches)} blocks: {text}")
-    section_type = target.get("section_type")
-    if section_type == "abstract":
-        for section in ir.get("sections", []):
-            if section.get("type") == "abstract":
-                return find_target_block(ir, {"block_id": section["heading_id"]})
+    section_type = target.get("section_type") or target.get("section")
+    if section_type:
+        section = find_section(ir, section_type)
+        if section:
+            return find_target_block(ir, {"block_id": section["heading_id"]})
     raise ValueError(f"unsupported or missing target: {target}")
+
+
+def find_section(ir: dict[str, Any], section_name: str) -> dict[str, Any] | None:
+    wanted = normalize_label(section_name)
+    aliases = {
+        "intro": "introduction",
+        "materials and methods": "methods",
+        "methodology": "methods",
+        "conclusions": "conclusion",
+        "bibliography": "references",
+    }
+    wanted = aliases.get(wanted, wanted)
+    for section in ir.get("sections", []):
+        section_type = normalize_label(section.get("type", ""))
+        section_title = normalize_label(section.get("title", ""))
+        if wanted in {section_type, section_title, aliases.get(section_title, section_title)}:
+            return section
+    return None
+
+
+def normalize_label(text: str) -> str:
+    import re
+
+    text = re.sub(r"^\s*[0-9IVXivx.、)\-]+\s*", "", str(text))
+    return re.sub(r"\s+", " ", text.strip().lower())
 
 
 def find_caption_block(ir: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
@@ -205,6 +253,145 @@ def make_paragraph(text_value: str, style: str) -> ET.Element:
     text = ET.SubElement(run, w_tag("t"))
     text.text = text_value
     return paragraph
+
+
+def replace_section_text(body: ET.Element, ir: dict[str, Any], target: dict[str, Any], value: Any) -> dict[str, Any]:
+    section = find_section(ir, str(target.get("section") or target.get("section_type") or target.get("title") or ""))
+    if not section:
+        raise ValueError(f"section not found: {target}")
+    values = normalize_paragraph_values(value)
+    if not values:
+        raise ValueError("replace_section_text requires non-empty value")
+    paragraphs = editable_section_paragraphs(ir, section)
+    if paragraphs:
+        first = paragraphs[0]
+        replace_paragraph_text(body_child(body, first), values[0])
+        for old in reversed(paragraphs[1:]):
+            body.remove(body_child(body, old))
+        insert_after_block(body, first, values[1:], first.get("style", "Normal"))
+        first_id = first["id"]
+    else:
+        heading = find_target_block(ir, {"block_id": section["heading_id"]})
+        insert_after_block(body, heading, values, "Normal")
+        first_id = heading["id"]
+    return {"action": "replace_section_text", "section": section["title"], "block_id": first_id, "paragraph_count": len(values)}
+
+
+def normalize_paragraph_values(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    return [item.strip() for item in text.split("\n\n") if item.strip()]
+
+
+def editable_section_paragraphs(ir: dict[str, Any], section: dict[str, Any]) -> list[dict[str, Any]]:
+    content = section_content_blocks(ir, section)
+    return [
+        block
+        for block in content
+        if block.get("type") == "paragraph"
+        and block.get("text", "").strip()
+        and not is_keyword_text(block.get("text", ""))
+        and not is_caption_block(ir, block)
+    ]
+
+
+def section_content_blocks(ir: dict[str, Any], section: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks = ir.get("blocks", [])
+    start = next((index for index, block in enumerate(blocks) if block.get("id") == section.get("heading_id")), None)
+    if start is None:
+        return []
+    level = int(blocks[start].get("level", section.get("level", 1)))
+    content = []
+    for block in blocks[start + 1 :]:
+        if block.get("type") == "heading" and int(block.get("level", 1)) <= level:
+            break
+        content.append(block)
+    return content
+
+
+def is_keyword_text(text: str) -> bool:
+    import re
+
+    return bool(re.match(KEYWORD_PREFIX_RE, text, re.I))
+
+
+def is_caption_block(ir: dict[str, Any], block: dict[str, Any]) -> bool:
+    block_id = block.get("id")
+    for figure in ir.get("figures", []):
+        if (figure.get("caption") or {}).get("paragraph_id") == block_id:
+            return True
+    for table in ir.get("tables", []):
+        if (table.get("caption") or {}).get("paragraph_id") == block_id:
+            return True
+    return False
+
+
+def insert_after_block(body: ET.Element, block: dict[str, Any], values: list[str], style: str) -> None:
+    index = int(block["location"]["body_index"]) - 1
+    for offset, text in enumerate(values, start=1):
+        body.insert(index + offset, make_paragraph(text, style))
+
+
+def set_keywords(body: ET.Element, ir: dict[str, Any], value: Any) -> dict[str, Any]:
+    keywords = value if isinstance(value, list) else [item.strip() for item in str(value).split(";") if item.strip()]
+    keyword_text = "Keywords: " + "; ".join(str(item).strip() for item in keywords if str(item).strip())
+    for block in ir.get("blocks", []):
+        if block.get("type") == "paragraph" and is_keyword_text(block.get("text", "")):
+            replace_paragraph_text(body_child(body, block), keyword_text)
+            return {"action": "set_keywords", "block_id": block["id"], "keyword_count": len(keywords)}
+    section = find_section(ir, "abstract")
+    if section:
+        paragraphs = editable_section_paragraphs(ir, section)
+        anchor = paragraphs[-1] if paragraphs else find_target_block(ir, {"block_id": section["heading_id"]})
+    else:
+        anchor = ir["blocks"][0]
+    insert_after_block(body, anchor, [keyword_text], "Normal")
+    return {"action": "set_keywords", "block_id": anchor["id"], "keyword_count": len(keywords)}
+
+
+def insert_section_after(body: ET.Element, ir: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    target = action.get("target", {})
+    section = find_section(ir, str(target.get("section") or target.get("section_type") or target.get("title") or ""))
+    if not section:
+        raise ValueError(f"section not found: {target}")
+    insert_index = section_end_body_index(ir, section)
+    level = int(action.get("level") or section.get("level") or 1)
+    heading_style = f"Heading{level}"
+    elements = [make_paragraph(str(action.get("heading", "New Section")), heading_style)]
+    for paragraph in normalize_paragraph_values(action.get("paragraphs", [])):
+        elements.append(make_paragraph(paragraph, "Normal"))
+    for offset, element in enumerate(elements):
+        body.insert(insert_index + offset, element)
+    return {"action": "insert_section_after", "section": section["title"], "inserted_count": len(elements)}
+
+
+def section_end_body_index(ir: dict[str, Any], section: dict[str, Any]) -> int:
+    blocks = ir.get("blocks", [])
+    start = next((index for index, block in enumerate(blocks) if block.get("id") == section.get("heading_id")), None)
+    if start is None:
+        raise ValueError(f"section start not found: {section}")
+    level = int(blocks[start].get("level", section.get("level", 1)))
+    end_body_index = int(blocks[start]["location"]["body_index"])
+    for block in blocks[start + 1 :]:
+        if block.get("type") == "heading" and int(block.get("level", 1)) <= level:
+            return int(block["location"]["body_index"]) - 1
+        end_body_index = int(block["location"]["body_index"])
+    return end_body_index
+
+
+def insert_citation_sentence(body: ET.Element, ir: dict[str, Any], action_name: str, target: dict[str, Any], sentence: str) -> dict[str, Any]:
+    if not sentence.strip():
+        raise ValueError(f"{action_name} requires sentence")
+    section = find_section(ir, str(target.get("section") or target.get("section_type") or "results"))
+    if not section:
+        raise ValueError(f"section not found for citation: {target}")
+    paragraphs = editable_section_paragraphs(ir, section)
+    anchor = paragraphs[-1] if paragraphs else find_target_block(ir, {"block_id": section["heading_id"]})
+    insert_after_block(body, anchor, [sentence.strip()], anchor.get("style", "Normal"))
+    return {"action": action_name, "block_id": anchor["id"], "section": section["title"]}
 
 
 def apply_paragraph_style(paragraph: ET.Element, style: str) -> None:
