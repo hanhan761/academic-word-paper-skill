@@ -1,0 +1,4 @@
+interface:
+  display_name: "Academic Word Paper"
+  short_description: "Analyze, patch, and validate academic docx papers"
+  default_prompt: "Use $word to analyze, patch, and validate an academic .docx manuscript."
